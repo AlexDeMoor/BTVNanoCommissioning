@@ -68,6 +68,11 @@ def load_SF(year, campaign, syst=False):
     correct_map = {"campaign": campaign}
 
     for SF in config[campaign].keys():
+        # print (f"Loading {SF} SFs...")
+        # print (f"Campaign: {campaign}")
+        # print (f"Campaign map: {campaign_map()[campaign]}")
+        # print (f"SF file(s): {config[campaign][SF]}")
+
         if SF == "DC":
             continue
 
@@ -280,6 +285,37 @@ def load_SF(year, campaign, syst=False):
                 ext.finalize()
                 correct_map["EGM_custom"] = ext.make_evaluator()
 
+        ## photon SFs
+        elif SF == "EGM_gamma":
+            # print (f"EGM_gamma SFs: {config[campaign]['EGM_gamma']}")  # Debug print to check the configuration
+            correct_map["EGM_gamma_cfg"] = {
+                e: f
+                for e, f in config[campaign]["EGM_gamma"].items()
+                if "gamma" in e and "_json" not in e
+            }
+            # print (f"EGM_gamma SFs after filtering: {correct_map['EGM_gamma_cfg']}")  # Debug print to check the filtered configuration
+            ## photon
+            for _gamma_file, _gamma_map in {
+                "photon": "EGM_gamma",
+                # "photonHlt": "EGM_gamma_HLT",
+            }.items():
+                _gamma_path = f"/cvmfs/cms-griddata.cern.ch/cat/metadata/EGM/{campaign_map()[campaign]}/latest/{_gamma_file}.json.gz"
+                if not os.path.exists(_gamma_path):
+                    _gamma_path = f"src/BTVNanoCommissioning/data/EGM/{campaign}/{_gamma_file}.json.gz"
+                if os.path.exists(_gamma_path):
+                    correct_map[_gamma_map] = correctionlib.CorrectionSet.from_file(
+                        _gamma_path
+                    )
+            # print (f"EGM_gamma SFs after loading: { {k: 'loaded' for k in correct_map.keys() if 'EGM_gamma' in k} }")  # Debug print to check which SFs are loaded
+            ## json
+            if any(
+                np.char.find(np.array(list(config[campaign]["EGM_gamma"].keys())), "gamma_json")
+                != -1
+            ):
+                correct_map["EGM_gamma"] = correctionlib.CorrectionSet.from_file(
+                    f"src/BTVNanoCommissioning/data/EGM/{campaign_map()[campaign]}/latest/{config[campaign]['EGM_gamma']['gamma_json']}"
+                )
+            # print (f"EGM_gamma SFs after loading json: { {k: 'loaded' for k in correct_map.keys() if 'EGM_gamma' in k} }")  # Debug print to check which SFs are loaded after json
         ## lepton scale & smearing
         elif SF == "muonSS":
             _mu_path = f"/cvmfs/cms-griddata.cern.ch/cat/metadata/MUO/{campaign_map()[campaign]}/latest/muon_scalesmearing.json.gz"
@@ -296,6 +332,15 @@ def load_SF(year, campaign, syst=False):
                     _ele_path
                 )
             correct_map["electronSS_cfg"] = config[campaign]["electronSS"]
+        elif SF == "photonSS":
+            _gamma_path = f"/cvmfs/cms-griddata.cern.ch/cat/metadata/EGM/{campaign_map()[campaign]}/latest/photonSS_EtDependent.json.gz"
+            if not os.path.exists(_gamma_path):
+                _gamma_path = f"src/BTVNanoCommissioning/data/EGM/{campaign_map()[campaign]}/latest/photonSS_EtDependent.json.gz"
+            if os.path.exists(_gamma_path):
+                correct_map["photonSS"] = correctionlib.CorrectionSet.from_file(
+                    _gamma_path
+                )
+            correct_map["photonSS_cfg"] = config[campaign]["photonSS"]
 
         ## Rochester muon momentum correction (Run 2)
         elif SF == "roccor":
@@ -642,7 +687,8 @@ def JME_shifts(
                     )
             corrFactor = ak.unflatten(corrFactor, nj)
 
-            jets["pt"] = ak.values_astype(nocorrjet["pt_raw"] * corrFactor, np.float32)
+            # jets["pt"] = ak.values_astype(nocorrjet["pt_raw"] * corrFactor, np.float32)
+            jets["pt"] = ak.values_astype(nocorrjet["pt_raw"] * corrFactor*nocorrjet["PNetRegPtRawCorr"], np.float32)
             jets["mass"] = ak.values_astype(
                 nocorrjet["mass_raw"] * corrFactor, np.float32
             )
@@ -1246,6 +1292,142 @@ def EGM_shifts(shifts, correct_map, events, isRealData, systematic=False):
             )
         ]
 
+    return shifts
+
+
+def EGM_shifts_photon(shifts, correct_map, events, isRealData, systematic=False):
+    """
+    Applies the Run 3 recommended electron scale and smearing corrections.
+    Returns the corrected electron objects, including systematics.
+    Adapted from this example of electron SS correction usage:
+    https://gitlab.cern.ch/cms-analysis-corrections/EGM/examples/-/blob/latest/egmScaleAndSmearingExample.py
+    """
+
+    pho = events.Photon
+    n_pho = ak.num(pho)
+    events_run = ak.flatten(ak.broadcast_arrays(events.run, pho.eta)[0])
+    pho_etaSC = (
+        ak.flatten(pho.superclusterEta)
+        if "Summer24" in correct_map["campaign"]
+        else ak.flatten(pho.eta + pho.deltaEtaSC)
+    )
+    pho_r9 = ak.flatten(pho.r9)
+    pho_pt = ak.flatten(pho.pt)
+    pho_seedGain = ak.flatten(pho.seedGain)
+
+    if isRealData:  # scale correction is only applied to data
+        scale_evaluator = correct_map["photonSS"].compound[
+            correct_map["photonSS_cfg"][0]
+        ]
+        scale = scale_evaluator.evaluate(
+            "scale",
+            events_run,
+            pho_etaSC,
+            pho_r9,
+            pho_pt,
+            pho_seedGain,
+        )
+        scale = ak.unflatten(scale, n_pho)
+        pho_pt_corr = scale * pho.pt
+    else:  # smear correction is only applied to MC
+        smear_and_syst_evaluator = correct_map["photonSS"][
+            correct_map["photonSS_cfg"][1]
+        ]
+        smear = smear_and_syst_evaluator.evaluate(
+            "smear", pho_pt, pho_r9, np.abs(pho_etaSC)
+        )
+        smear = ak.unflatten(smear, n_pho)
+        # since the smearing is stochastic, a random number is needed for each event
+        rng = np.random.default_rng(seed=125)
+        random_numbers = rng.normal(loc=0.0, scale=1.0, size=len(pho.pt))
+        pho_pt_corr = pho.pt * (1 + smear * random_numbers)
+
+    # scale and smearing uncertainties should be evaluated on the original MC only
+    if systematic and not isRealData:
+        unc_scale = smear_and_syst_evaluator.evaluate(
+            "escale", pho_pt, pho_r9, np.abs(pho_etaSC)
+        )
+        unc_scale = ak.unflatten(unc_scale, n_pho)
+        unc_smear = smear_and_syst_evaluator.evaluate(
+            "esmear", pho_pt, pho_r9, np.abs(pho_etaSC)
+        )
+        unc_smear = ak.unflatten(unc_smear, n_pho)
+
+    pho["pt"] = pho_pt_corr
+    # print (pho_pt_corr)
+    # add nominal scale & smearing correction to shifts
+    for i in range(len(shifts)):
+        shifts[i][0]["Photon"] = pho
+
+    if systematic:
+        pho_scale_up, pho_scale_down = events.Photon, events.Photon
+        pho_smear_up, pho_smear_down = events.Photon, events.Photon
+
+        if not isRealData:
+            pho_scale_up["pt"] = (1 + unc_scale) * pho_pt_corr
+            pho_scale_down["pt"] = (1 - unc_scale) * pho_pt_corr
+            pho_smear_up["pt"] = events.Photon.pt * (
+                1 + (smear + unc_smear) * random_numbers
+            )
+            pho_smear_down["pt"] = events.Photon.pt * (
+                1 + np.maximum(0.0, (smear - unc_smear)) * random_numbers
+            )
+
+        shifts += [
+            (
+                {
+                    "Jet": shifts[0][0]["Jet"],
+                    "MET": shifts[0][0]["MET"],
+                    "Muon": shifts[0][0]["Muon"],
+                    "Muon": shifts[0][0]["Muon"],
+                    "Electron": shifts[0][0]["Electron"],
+                    "Photon": pho_scale_up,
+                },
+                "PhotonScaleUp",
+            )
+        ]
+        shifts += [
+            (
+                {
+                    "Jet": shifts[0][0]["Jet"],
+                    "MET": shifts[0][0]["MET"],
+                    "Muon": shifts[0][0]["Muon"],
+                    "Muon": shifts[0][0]["Muon"],
+                    "Electron": shifts[0][0]["Electron"],
+                    "Photon": pho_scale_down,
+                },
+                "PhotonScaleDown",
+            )
+        ]
+        shifts += [
+            (
+                {
+                    "Jet": shifts[0][0]["Jet"],
+                    "MET": shifts[0][0]["MET"],
+                    "Muon": shifts[0][0]["Muon"],
+                    "Muon": shifts[0][0]["Muon"],
+                    "Electron": shifts[0][0]["Electron"],
+                    "Photon": pho_smear_up,
+                },
+                "PhotonSmearUp",
+            )
+        ]
+        shifts += [
+            (
+                {
+                    "Jet": shifts[0][0]["Jet"],
+                    "MET": shifts[0][0]["MET"],
+                    "Muon": shifts[0][0]["Muon"],
+                    "Electron": shifts[0][0]["Electron"],
+                    "Photon": pho_smear_down,
+                },
+                "PhotonSmearDown",
+            )
+        ]
+
+    # print ("Applied EGM corrections to photons")
+    # print ("Number of shifts after EGM corrections to photons: ", len(shifts))
+    # print (shifts)
     return shifts
 
 
@@ -1985,6 +2167,400 @@ def eleSFs(ele, correct_map, weights, syst=True, isHLT=False):
 
     return weights
 
+def gammaSFs(gamma, correct_map, weights, syst=True, isHLT=False):
+    # print (f"Applying photon SFs for campaign {correct_map['campaign']}")
+    allgamma = gamma if gamma.ndim > 1 else ak.singletons(gamma)
+
+    for sf in correct_map["EGM_gamma_cfg"].keys():
+        # print (f"Applying {sf} SFs for photons")
+        ## Only apply SFs for lepton pass HLT filter
+        if not isHLT and "Trig" in sf:
+            continue
+        sf_type = sf[: sf.find(" ")]
+        for ngamma in range(ak.num(allgamma.pt)[0]):
+            gamma = allgamma[:, ngamma]
+            gamma_etaSC = (
+                ak.fill_none(gamma.eta + gamma.deltaEtaSC, -2.5)
+                if "Summer24" not in correct_map["campaign"]
+                else ak.fill_none(gamma.superclusterEta, -2.5)
+            )
+            masknone = ak.is_none(gamma.pt)
+            sfs_allgamma, sfs_allgamma_up, sfs_allgamma_down = (
+                np.ones_like(allgamma[:, 0].pt),
+                np.ones_like(allgamma[:, 0].pt),
+                np.ones_like(allgamma[:, 0].pt),
+            )
+
+            if "correctionlib" in str(type(correct_map["EGM_gamma"])):
+                ## reco SFs, split by pT
+                if "Reco" in sf:
+                    gamma_pt = np.clip(gamma.pt, 20, 74.99999)
+                    gamma_pt_low = np.where(gamma.pt >= 20, 19.99999, gamma.pt)
+                    gamma_pt_high = np.clip(gamma.pt, 75, 10000)
+                    ## phi is used in Summer23
+                    if "Summer23" in correct_map["campaign"]:
+                        sfs_low = np.where(
+                            (gamma.pt < 20.0) & ~masknone,
+                            correct_map["EGM_gamma"][sf.split(" ")[2]].evaluate(
+                                sf.split(" ")[1],
+                                "sf",
+                                "RecoBelow20",
+                                gamma_etaSC,
+                                gamma_pt_low,
+                                gamma.phi,
+                            ),
+                            1.0,
+                        )
+                        sfs_high = np.where(
+                            (gamma.pt >= 75.0) & ~masknone,
+                            correct_map["EGM_gamma"][sf.split(" ")[2]].evaluate(
+                                sf.split(" ")[1],
+                                "sf",
+                                "RecoAbove75",
+                                gamma_etaSC,
+                                gamma_pt_high,
+                                gamma.phi,
+                            ),
+                            sfs_low,
+                        )
+                        sfs = np.where(
+                            (gamma.pt >= 20.0) & (gamma.pt < 75.0) & ~masknone,
+                            correct_map["EGM_gamma"][sf.split(" ")[2]].evaluate(
+                                sf.split(" ")[1],
+                                "sf",
+                                "Reco20to75",
+                                gamma_etaSC,
+                                gamma.pt,
+                                gamma.phi,
+                            ),
+                            sfs_high,
+                        )
+                        sfs = np.where(masknone, 1.0, sfs)
+
+                        if syst != False:
+                            sfs_up_low = np.where(
+                                (gamma.pt < 20.0) & ~masknone,
+                                correct_map["EGM_gamma"][sf.split(" ")[2]].evaluate(
+                                    sf.split(" ")[1],
+                                    "sfup",
+                                    "RecoBelow20",
+                                    gamma_etaSC,
+                                    gamma.pt,
+                                    gamma.phi,
+                                ),
+                                0.0,
+                            )
+                            sfs_down_low = np.where(
+                                (gamma.pt < 20.0) & ~masknone,
+                                correct_map["EGM_gamma"][sf.split(" ")[2]].evaluate(
+                                    sf.split(" ")[1],
+                                    "sfdown",
+                                    "RecoBelow20",
+                                    gamma_etaSC,
+                                    gamma.pt,
+                                    gamma.phi,
+                                ),
+                                0.0,
+                            )
+                            sfs_up_high = np.where(
+                                (gamma.pt >= 75.0) & ~masknone,
+                                correct_map["EGM_gamma"][sf.split(" ")[2]].evaluate(
+                                    sf.split(" ")[1],
+                                    "sfup",
+                                    "RecoAbove75",
+                                    gamma_etaSC,
+                                    gamma.pt_high,
+                                    gamma.phi,
+                                ),
+                                sfs_up_low,
+                            )
+                            sfs_down_high = np.where(
+                                (gamma.pt >= 75.0) & ~masknone,
+                                correct_map["EGM_gamma"][sf.split(" ")[2]].evaluate(
+                                    sf.split(" ")[1],
+                                    "sfdown",
+                                    "RecoAbove75",
+                                    gamma_etaSC,
+                                    gamma.pt_high,
+                                    gamma.phi,
+                                ),
+                                sfs_down_low,
+                            )
+                            sfs_up = np.where(
+                                (gamma.pt >= 20.0) & (gamma.pt < 75.0) & ~masknone,
+                                correct_map["EGM_gamma"][sf.split(" ")[2]].evaluate(
+                                    sf.split(" ")[1],
+                                    "sfup",
+                                    "Reco20to75",
+                                    gamma_etaSC,
+                                    gamma.pt,
+                                    gamma.phi,
+                                ),
+                                sfs_up_high,
+                            )
+                            sfs_down = np.where(
+                                (gamma.pt >= 20.0) & (gamma.pt < 75.0) & ~masknone,
+                                correct_map["EGM_gamma"][sf.split(" ")[2]].evaluate(
+                                    sf.split(" ")[1],
+                                    "sfdown",
+                                    "Reco20to75",
+                                    gamma_etaSC,
+                                    gamma.pt,
+                                    gamma.phi,
+                                ),
+                                sfs_down_high,
+                            )
+                            sfs_up = np.where(masknone, 1.0, sfs_up)
+                            sfs_down = np.where(masknone, 1.0, sfs_down)
+
+                    else:
+                        sfs_low = np.where(
+                            (ele.pt < 20.0) & ~masknone,
+                            correct_map["EGM_gamma"][sf.split(" ")[2]].evaluate(
+                                sf.split(" ")[1],
+                                "sf",
+                                "RecoBelow20",
+                                gamma_etaSC,
+                                gamma.pt_low,
+                            ),
+                            1.0,
+                        )
+                        sfs_high = np.where(
+                            (gamma.pt >= 75.0) & ~masknone,
+                            correct_map["EGM_gamma"][sf.split(" ")[2]].evaluate(
+                                sf.split(" ")[1],
+                                "sf",
+                                "RecoAbove75",
+                                gamma_etaSC,
+                                gamma.pt_high,
+                            ),
+                            sfs_low,
+                        )
+                        sfs = np.where(
+                            (gamma.pt >= 20.0) & (gamma.pt < 75.0) & ~masknone,
+                            correct_map["EGM_gamma"][sf.split(" ")[2]].evaluate(
+                                sf.split(" ")[1], "sf", "Reco20to75", gamma_etaSC, gamma.pt
+                            ),
+                            sfs_high,
+                        )
+                        sfs = np.where(masknone, 1.0, sfs)
+
+                        if syst:
+                            sfs_up_low = np.where(
+                                (gamma.pt < 20.0) & ~masknone,
+                                correct_map["EGM_gamma"][sf.split(" ")[2]].evaluate(
+                                    sf.split(" ")[1],
+                                    "sfup",
+                                    "RecoBelow20",
+                                    gamma_etaSC,
+                                    gamma.pt_low,
+                                ),
+                                0.0,
+                            )
+                            sfs_down_low = np.where(
+                                (gamma.pt < 20.0) & ~masknone,
+                                correct_map["EGM_gamma"][sf.split(" ")[2]].evaluate(
+                                    sf.split(" ")[1],
+                                    "sfdown",
+                                    "RecoBelow20",
+                                    gamma_etaSC,
+                                    gamma.pt_low,
+                                ),
+                                0.0,
+                            )
+                            sfs_up_high = np.where(
+                                (gamma.pt >= 75.0) & ~masknone,
+                                correct_map["EGM_gamma"][sf.split(" ")[2]].evaluate(
+                                    sf.split(" ")[1],
+                                    "sfup",
+                                    "RecoAbove75",
+                                    gamma_etaSC,
+                                    gamma.pt_high,
+                                ),
+                                sfs_up_low,
+                            )
+                            sfs_down_high = np.where(
+                                (gamma.pt >= 75.0) & ~masknone,
+                                correct_map["EGM_gamma"][sf.split(" ")[2]].evaluate(
+                                    sf.split(" ")[1],
+                                    "sfdown",
+                                    "RecoAbove75",
+                                    gamma_etaSC,
+                                    gamma.pt_high,
+                                ),
+                                sfs_down_low,
+                            )
+                            sfs_up = np.where(
+                                (gamma.pt >= 20.0) & (gamma.pt < 75.0) & ~masknone,
+                                correct_map["EGM_gamma"][sf.split(" ")[2]].evaluate(
+                                    sf.split(" ")[1],
+                                    "sfup",
+                                    "Reco20to75",
+                                    gamma_etaSC,
+                                    gamma.pt,
+                                ),
+                                sfs_up_high,
+                            )
+                            sfs_down = np.where(
+                                (gamma.pt >= 20.0) & (gamma.pt < 75.0) & ~masknone,
+                                correct_map["EGM_gamma"][sf.split(" ")[2]].evaluate(
+                                    sf.split(" ")[1],
+                                    "sfdown",
+                                    "Reco20to75",
+                                    gamma_etaSC,
+                                    gamma.pt,
+                                ),
+                                sfs_down_high,
+                            )
+                            sfs_up = np.where(masknone, 1.0, sfs_up)
+                            sfs_down = np.where(masknone, 1.0, sfs_down)
+
+                else:
+                    # trigger SFs
+                    if "Trig" in sf and "correctionlib" in str(
+                        type(correct_map["EGM_HLT"])
+                    ):
+                        _ele_map = "EGM_gamma_HLT"
+                        gamma_pt = ak.fill_none(gamma.pt, 25.0)
+                        gamma_pt = np.clip(gamma_pt, 25.0, None)
+                    # ID SFs
+                    else:
+                        _ele_map = "EGM_gamma"
+                        gamma_pt = ak.fill_none(gamma.pt, 10.0)
+                        gamma_pt = np.clip(gamma_pt, 10.0, None)
+
+                    if "Summer23" in correct_map["campaign"]:
+                        sfs = np.where(
+                            masknone,
+                            1.0,
+                            correct_map[_ele_map][sf.split(" ")[2]].evaluate(
+                                sf.split(" ")[1],
+                                "sf",
+                                correct_map["EGM_gamma_cfg"][sf],
+                                gamma_etaSC,
+                                gamma_pt,
+                                gamma.phi,
+                            ),
+                        )
+
+                        if syst:
+                            sfs_up = np.where(
+                                masknone,
+                                1.0,
+                                correct_map[_ele_map][sf.split(" ")[2]].evaluate(
+                                    sf.split(" ")[1],
+                                    "sfup",
+                                    correct_map["EGM_gamma_cfg"][sf],
+                                    gamma_etaSC,
+                                    gamma_pt,
+                                    gamma.phi,
+                                ),
+                            )
+                            sfs_down = np.where(
+                                masknone,
+                                1.0,
+                                correct_map[_ele_map][sf.split(" ")[2]].evaluate(
+                                    sf.split(" ")[1],
+                                    "sfdown",
+                                    correct_map["EGM_gamma_cfg"][sf],
+                                    gamma_etaSC,
+                                    gamma_pt,
+                                    gamma.phi,
+                                ),
+                            )
+                    else:
+                        sfs = np.where(
+                            masknone,
+                            1.0,
+                            correct_map[_ele_map][sf.split(" ")[2]].evaluate(
+                                sf.split(" ")[1],
+                                "sf",
+                                correct_map["EGM_gamma_cfg"][sf],
+                                gamma_etaSC,
+                                gamma_pt,
+                            ),
+                        )
+
+                        if syst:
+                            sfs_up = np.where(
+                                masknone,
+                                1.0,
+                                correct_map[_ele_map][sf.split(" ")[2]].evaluate(
+                                    sf.split(" ")[1],
+                                    "sfup",
+                                    correct_map["EGM_gamma_cfg"][sf],
+                                    gamma_etaSC,
+                                    gamma_pt,
+                                ),
+                            )
+                            sfs_down = np.where(
+                                masknone,
+                                1.0,
+                                correct_map[_ele_map][sf.split(" ")[2]].evaluate(
+                                    sf.split(" ")[1],
+                                    "sfdown",
+                                    correct_map["EGM_gamma_cfg"][sf],
+                                    gamma_etaSC,
+                                    gamma_pt,
+                                ),
+                            )
+
+            else:
+                if "gamma_Trig" in sf:
+                    sfs = np.where(
+                        masknone, 1.0, correct_map["EGM_gamma_custom"][sf_type](gamma_pt)
+                    )
+                    if syst:
+                        sfs_up = np.where(
+                            masknone,
+                            1.0,
+                            correct_map["EGM_gamma_custom"][sf_type](gamma_pt)
+                            + correct_map["EGM_gamma_custom"][f"{sf_type}_error"](gamma_pt),
+                        )
+                        sfs_down = np.where(
+                            masknone,
+                            1.0,
+                            correct_map["EGM_gamma_custom"][sf_type](gamma_pt)
+                            - correct_map["EGM_gamma_custom"][f"{sf_type}_error"](gamma_pt),
+                        )
+                elif "gamma" in sf:
+                    sfs = np.where(
+                        masknone,
+                        1.0,
+                        correct_map["EGM_gamma_custom"][sf_type](gamma_etaSC, gamma_pt),
+                    )
+                    if syst:
+                        sfs_up = np.where(
+                            masknone,
+                            1.0,
+                            correct_map["EGM_gamma_custom"][sf_type](gamma_etaSC, gamma_pt)
+                            + correct_map["EGM_gamma_custom"][f"{sf_type}_error"](
+                                gamma_etaSC, gamma_pt
+                            ),
+                        )
+                        sfs_down = np.where(
+                            masknone,
+                            1.0,
+                            correct_map["EGM_gamma_custom"][sf_type](gamma_etaSC, gamma_pt)
+                            - correct_map["EGM_gamma_custom"][f"{sf_type}_error"](
+                                gamma_etaSC, gamma_pt
+                            ),
+                        )
+            # print (f"SFs for {sf} applied to photons")
+            # print (f"SFs: {sfs}")
+            sfs_allgamma = sfs_allgamma * sfs
+            if syst:
+                sfs_allgamma_down = sfs_allgamma_down * sfs_down
+                sfs_allgamma_up = sfs_allgamma_up * sfs_up
+
+        sfname = sf.split(" ")[0]
+        if syst:
+            weights.add(sfname, sfs_allgamma, sfs_allgamma_up, sfs_allgamma_down)
+        else:
+            weights.add(sfname, sfs_allgamma)
+
+    return weights
+
 
 def muSFs(mu, correct_map, weights, syst=False, isHLT=False):
     allmu = mu if mu.ndim > 1 else ak.singletons(mu)
@@ -2499,6 +3075,12 @@ def common_shifts(self, events):
         for shift in shifts:
             shift[0]["Electron"] = events.Electron
 
+    if "photonSS" in self.SF_map.keys():
+        shifts = EGM_shifts_photon(shifts, self.SF_map, events, isRealData, False)
+    else:
+        for shift in shifts:
+            shift[0]["Photon"] = events.Photon
+
     # Apply jet veto
     if "jetveto" in self.SF_map.keys():
         jet_veto = jetveto(events.Jet, self.SF_map)
@@ -2553,10 +3135,14 @@ def weight_manager(pruned_ev, SF_map, isSyst):
                 weights,
                 syst_wei,
             )
+        # print (SF_map.keys())
+        # print ("EGM_gamma" in SF_map.keys(), "SelPhoton" in pruned_ev.fields)
         if "MUO" in SF_map.keys() and "SelMuon" in pruned_ev.fields:
             muSFs(pruned_ev.SelMuon, SF_map, weights, syst_wei, False)
         if "EGM" in SF_map.keys() and "SelElectron" in pruned_ev.fields:
             eleSFs(pruned_ev.SelElectron, SF_map, weights, syst_wei, False)
+        if "EGM_gamma" in SF_map.keys() and "SelPhoton" in pruned_ev.fields:
+            gammaSFs(pruned_ev.SelPhoton, SF_map, weights, syst_wei, False)
         if (
             "ctag" in SF_map.keys() or "btag" in SF_map.keys()
         ) and "SelJet" in pruned_ev.fields:

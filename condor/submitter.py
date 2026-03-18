@@ -224,6 +224,7 @@ Arguments = $(JOBNUM)
 request_cpus = 1
 request_memory = 2000
 use_x509userproxy = true
++AccountingGroup = "group_u_CMST3.all"
 
 +JobFlavour = "tomorrow"
 

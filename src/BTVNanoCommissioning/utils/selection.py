@@ -134,6 +134,17 @@ def ele_promptmvaid(events, campaign):
     return elemask
 
 
+def gamma_mvatightid(events, campaign):
+    photon_etaSC = (
+        events.Photon.eta + events.Photon.deltaEtaSC
+        if "Summer24" not in campaign and "Prompt25" not in campaign
+        else events.Photon.superclusterEta
+    )
+    photonmask = (
+        (abs(photon_etaSC) < 1.4442) | ((abs(photon_etaSC) > 1.566) & (abs(photon_etaSC) < 2.5))
+    ) & (events.Photon.mvaID_WP80 > 0.5)
+    return photonmask
+
 def softmu_mask(events, campaign, dxySigCut=0):
     softmumask = (
         (events.Muon.pt < 25)
@@ -155,16 +166,37 @@ def mu_idiso(events, campaign):
     return mumask
 
 
+def mu_loose(events, campaign):
+    mumask = (
+        (abs(events.Muon.eta) < 2.5)
+        & (events.Muon.looseId > 0.5)
+    )
+    return mumask
+
+def ele_loose(events, campaign):
+    ele_etaSC = (
+        events.Electron.eta + events.Electron.deltaEtaSC
+        if "Summer24" not in campaign and "Prompt25" not in campaign
+        else events.Electron.superclusterEta
+    )
+    elemask = (
+        (abs(ele_etaSC) < 1.4442) | ((abs(ele_etaSC) > 1.566) & (abs(ele_etaSC) < 2.5))
+    ) & (events.Electron.cutBased > 1)
+    return elemask
+
+
 def mu_promptmvaid(events, campaign):
     # https://muon-wiki.docs.cern.ch/guidelines/recommendations/#prompt-mva-formerly-tth-mva
     # https://muon-wiki.docs.cern.ch/guidelines/recommendations/#muon-isolation
     # https://cms-talk.web.cern.ch/t/prompt-mva-sfs-definition/132578
     # https://indico.cern.ch/event/1351304/contributions/5688794/attachments/2765665/4817340/CarlosVico_Muon_mvaTTH_24nov2023.pdf (slide 5 for WP)
     mumask = (
-        (abs(events.Muon.eta) < 2.4)
-        & (events.Muon.tightId > 0.5)
+        (abs(events.Muon.eta) < 2.5)
+        & (events.Muon.mediumId > 0.5)
         & (events.Muon.promptMVA > 0.64)
     )
+            # & (events.Muon.tightId > 0.5)
+
     return mumask
 
 
@@ -507,6 +539,7 @@ btag_wp_dict = {
                     "L": 50,
                     "M": 51,
                     "T": 52,
+                    "XT": 54,
                 },
                 "c": {
                     "L": [40, 44],

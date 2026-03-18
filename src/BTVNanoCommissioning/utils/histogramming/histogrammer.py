@@ -94,6 +94,7 @@ def histo_writter(pruned_ev, output, weights, systematics, isSyst, SF_map):
     # Reduce the jet to the correct dimension in the plot
     found4jets = False
     found2jets = False
+    # print (f"Available histograms in output: {list(output.keys())}")
     for key in output.keys():
         if "jet3" in key:  # Because 0-indexing
             found4jets = True
@@ -232,6 +233,18 @@ def histo_writter(pruned_ev, output, weights, systematics, isSyst, SF_map):
                     flatten(pruned_ev.SelElectron[histname.replace("ele_", "")]),
                     weight=weight,
                 )
+            
+            # Selected photon histograms
+            elif (
+                "photon_" in histname
+                and histname.replace("photon_", "") in pruned_ev.SelPhoton.fields
+                and "Plus" not in pruned_ev.fields
+            ):
+                h.fill(
+                    syst,
+                    flatten(pruned_ev.SelPhoton[histname.replace("photon_", "")]),
+                    weight=weight,
+                )
             # Selected muon histograms
             elif (
                 "mu_" in histname
@@ -360,6 +373,7 @@ def histo_writter(pruned_ev, output, weights, systematics, isSyst, SF_map):
                             weight,
                             # weights.partial_weight(exclude=exclude_btv),
                         )
+                    # print (f"Filling {histname} with flavor {flav}, jet variable {seljet[histname.replace(f'_{i}', '')]}, weight {wgt}, systematic {syst}")
                     h.fill(
                         syst=syst,
                         flav=flav,
@@ -475,6 +489,9 @@ def histo_writter(pruned_ev, output, weights, systematics, isSyst, SF_map):
 
         if "w_mt" in pruned_ev.fields:
             output["w_mt"].fill(syst, flatten(pruned_ev.w_mt), weight=weight)
+
+        if "w_hadmass" in pruned_ev.fields:
+            output["w_hadmass"].fill(syst, flatten(pruned_ev.w_hadmass), weight=weight)
 
         # ttbar dilepton kin workflow
         if "kindisc" in output.keys():

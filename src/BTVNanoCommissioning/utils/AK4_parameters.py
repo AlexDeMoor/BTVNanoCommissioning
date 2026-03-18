@@ -197,16 +197,29 @@ correction_config = {
         },
         "jetveto": {"Summer24Prompt24_RunBCDEFGHI_V1": "jetvetomap"},
         "MUO": {
-            "mu_ID": "NUM_TightID_DEN_TrackerMuons",
-            "mu_Iso": "NUM_TightPFIso_DEN_TightID",
+            # "mu_ID": "NUM_TightID_DEN_TrackerMuons",
+            "mu_ID": "NUM_MediumID_DEN_TrackerMuons",
+            # "mu_Iso": "NUM_TightPFIso_DEN_TightID",
             # "mu_Iso": "NUM_promptMVA_WP64ID_DEN_TightID",
+            "mu_Iso": "NUM_promptMVA_WP64ID_DEN_MediumID",
             # TODO: need to derive trigger SFs with prompt MVA?
             # E.g. NUM_IsoMu24_DEN_CutBasedIdTight_and_promptMVA_WP64ID
-            # "mu_Trig": "NUM_IsoMu24_DEN_CutBasedIdTight_and_PFIsoTight",
+            "mu_Trig": "NUM_IsoMu24_DEN_CutBasedIdTight_and_PFIsoTight",
         },
         "EGM": {
             "ele_Reco 2024Prompt Electron-ID-SF": "",
-            "ele_ID 2024Prompt Electron-ID-SF": "wp80iso",
+            # "ele_ID 2024Prompt Electron-ID-SF": "wp80iso",
+            # "ele_ID 2024Prompt Electron-ID-SF": "PromptMVA-Medium",
+            "ele_ID 2024Prompt Electron-ID-SF": "PromptMVA-Tight",
+            # TODO: need to derive trigger SFs with prompt MVA?
+            # E.g. HLT_SF_Ele30_PromptMVA-Tight
+            # "ele_Trig 2024Prompt Electron-HLT-SF": "HLT_SF_Ele30_MVAiso80ID",
+            "ele_Trig 2024Prompt Electron-HLT-SF": "HLT_SF_Ele30_MVAiso80ID",
+        },
+        "EGM_gamma": {
+            # "gamma_Reco 2024Prompt Electron-ID-SF": "",
+            "gamma_ID 2024Prompt Photon-ID-SF": "wp80",
+            "gamma_PixelVeto 2024Prompt Photon-PixVeto-SF": "MVA80",
             # "ele_ID 2024Prompt Electron-ID-SF": "PromptMVA-Tight",
             # TODO: need to derive trigger SFs with prompt MVA?
             # E.g. HLT_SF_Ele30_PromptMVA-Tight
@@ -214,6 +227,10 @@ correction_config = {
         },
         "muonSS": "",
         "electronSS": [
+            "Scale",
+            "SmearAndSyst",
+        ],
+        "photonSS": [
             "Scale",
             "SmearAndSyst",
         ],

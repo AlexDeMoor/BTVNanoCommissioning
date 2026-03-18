@@ -11,6 +11,7 @@ axes = {
     "eta": hist.axis.Regular(25, -2.5, 2.5, name="eta", label=" $\eta$"),
     "phi": hist.axis.Regular(30, -3, 3, name="phi", label="$\phi$"),
     "mt": hist.axis.Regular(30, 0, 300, name="mt", label=" $m_{T}$ [GeV]"),
+    "hadmass": hist.axis.Regular(30, 0, 300, name="hadmass", label=" $m_{qq}$ [GeV]"),
     "iso": hist.axis.Regular(30, 0, 0.05, name="pfRelIso03_all", label="Rel. Iso"),
     "softliso": hist.axis.Regular(
         20, 0.2, 6.2, name="pfRelIso03_all", label="Rel. Iso"

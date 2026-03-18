@@ -41,6 +41,10 @@ from BTVNanoCommissioning.workflows._2D_Wc_valid_sf import (
     NanoProcessor as _2DWcValidSFProcessor,
 )
 
+from BTVNanoCommissioning.workflows._2D_Zgamma_sf import (
+    NanoProcessor as _2D_Zgamma_SF_Processor,
+)
+
 # QCD
 from BTVNanoCommissioning.workflows.QCD_validation import (
     NanoProcessor as QCDValidProcessor,
@@ -129,6 +133,8 @@ workflows["ectag_DY_sf"] = partial(CTAGDYValidSFProcessor, selectionModifier="DY
 workflows["2D_mu_DY_sf"] = partial(CTAGDYValidSFProcessor, selectionModifier="DYM_2D")
 workflows["2D_e_DY_sf"] = partial(CTAGDYValidSFProcessor, selectionModifier="DYE_2D")
 
+# 2D ZGamma
+workflows["2D_ZGamma_sf"] = _2D_Zgamma_SF_Processor
 
 # Tutorial
 workflows["example"] = ExampleProcessor

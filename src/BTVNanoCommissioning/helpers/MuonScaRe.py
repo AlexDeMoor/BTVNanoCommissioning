@@ -247,13 +247,13 @@ def get_k(eta, var, cset, nested=False):
     return result
 
 
-def filter_boundaries(pt_corr, pt, nested, low_pt_threshold=26):
+def filter_boundaries(pt_corr, pt, nested, low_pt_threshold = 15, high_pt_threshold = 9999):
     if not nested:
         pt_corr = np.asarray(pt_corr)
         pt = np.asarray(pt)
 
     # Check for pt values outside the range of [low_pt_threshold, 200]
-    outside_bounds = (pt < low_pt_threshold) | (pt > 200)
+    outside_bounds = (pt < low_pt_threshold) | (pt > high_pt_threshold)
 
     if nested:
         n_pt_outside = ak.sum(ak.any(outside_bounds, axis=-1))
@@ -267,7 +267,8 @@ def filter_boundaries(pt_corr, pt, nested, low_pt_threshold=26):
             + ",200] GeV. "
             "Setting those entries to their initial value."
         )
-        pt_corr = np.where(pt > 200, pt, pt_corr)
+        # pt_corr = np.where(pt > 200, pt, pt_corr)
+        pt_corr = np.where(pt > high_pt_threshold, pt, pt_corr)
         pt_corr = np.where(pt < low_pt_threshold, pt, pt_corr)
 
     # Check for NaN entries in pt_corr
@@ -289,7 +290,7 @@ def filter_boundaries(pt_corr, pt, nested, low_pt_threshold=26):
     return pt_corr
 
 
-def pt_resol(pt, eta, phi, nL, evtNr, lumiNr, cset, nested=False, low_pt_threshold=26):
+def pt_resol(pt, eta, phi, nL, evtNr, lumiNr, cset, nested=False, low_pt_threshold=15):
     """ "
     Function for the calculation of the resolution correction
     Input:
@@ -372,7 +373,7 @@ def pt_resol_var(pt_woresol, pt_wresol, eta, updn, cset, nested=False):
     return pt_var
 
 
-def pt_scale(is_data, pt, eta, phi, charge, cset, nested=False, low_pt_threshold=26):
+def pt_scale(is_data, pt, eta, phi, charge, cset, nested=False, low_pt_threshold=15):
     """
     Function for the calculation of the scale correction
     Input:

@@ -72,7 +72,8 @@ class NanoProcessor(processor.ProcessorABC):
         dataset = events.metadata["dataset"]
         isRealData = not hasattr(events, "genWeight")
 
-        objs = ["MET", "jet0", "jet1", "jet2", "jet3"]
+        # objs = ["MET", "jet0", "jet1", "jet2", "jet3"]
+        objs = ["MET", "jet0", "jet1"]
         if self.selMod == "semittE":
             objs.append("ele")
             chn = "ele"
@@ -96,7 +97,8 @@ class NanoProcessor(processor.ProcessorABC):
             )
 
         if shift_name is None:
-            output["other_sumw"] = len(events) if isRealData else ak.sum(events.genWeight)
+            # output["other_sumw"] = len(events) if isRealData else ak.sum(events.genWeight)
+            output["other_sumw"] = len(events) if isRealData else np.sum(events.genWeight)
 
         ####################
         #    Selections    #
@@ -157,20 +159,29 @@ class NanoProcessor(processor.ProcessorABC):
         event_jet = events.Jet[jet_sel]
         n_jet = ak.count(event_jet.pt, axis=1)
         # req_jets = (n_jet >= 3) & (n_jet <= 4)
-        req_jets = n_jet >= 4
+        # req_jets = n_jet >= 4
+        # testing for calib
+        req_jets = n_jet == 4
 
         # b-tagged jets requirement
         mask_bjets = btag_wp(
             event_jet, self._year, self._campaign, "UParTAK4", "b", "M"
         )
+        mask_bjets_tight = btag_wp(
+            event_jet, self._year, self._campaign, "UParTAK4", "2Db", "XT"
+        )
         mask_cjets = btag_wp(
             event_jet, self._year, self._campaign, "UParTAK4", "c", "M"
         )
         n_bjets = ak.count(event_jet[mask_bjets].pt, axis=1)
+        n_bjets_tight = ak.count(event_jet[mask_bjets_tight].pt, axis=1)
+        n_nonbjets_tight = ak.count(event_jet[~mask_bjets_tight].pt, axis=1)
         n_cjets = ak.count(event_jet[mask_cjets].pt, axis=1)
         n_hfjets = n_bjets + n_cjets
         # req_b_jets = (n_bjets >= 1)
-        req_b_jets = (n_bjets >= 1) & (n_hfjets >= 3)
+        # req_b_jets = (n_bjets >= 1) & (n_hfjets >= 3)
+        # testing for calib
+        req_b_jets = (n_bjets_tight == 2) & (n_nonbjets_tight == 2)
 
         ## Other cuts
 
@@ -197,11 +208,21 @@ class NanoProcessor(processor.ProcessorABC):
         )
         req_Wmt = event_Wmt > 40
 
+        # calculate hadronic W mass of the two non b tagged jets (only 4 jets total)
+        event_nonbjets = event_jet[~mask_bjets_tight]
+        event_nonbjets = ak.pad_none(event_nonbjets, 2, axis=1)
+        # calculate mass
+        # print ("len non b jets", ak.count(event_nonbjets.pt, axis=1))
+        # event_Whad = ak.sum(event_nonbjets, axis=1).mass
+        event_Whad = (event_nonbjets[:, 0] + event_nonbjets[:, 1]).mass
+        # print ("event_Whad", event_Whad)
+
         event_level = ak.fill_none(
             req_lumi & req_trig & req_lep
             # & req_DYveto
             & req_jets
             # & req_b_jets
+            & req_b_jets
             & req_MET & req_metfilter,
             # & req_Wmt,
             False,
@@ -225,7 +246,8 @@ class NanoProcessor(processor.ProcessorABC):
         ####################
 
         pruned_ev = events[event_level]
-        pruned_ev["SelJet"] = event_jet[event_level][:, :4]
+        # pruned_ev["SelJet"] = event_jet[event_level][:, :4]
+        pruned_ev["SelJet"] = event_nonbjets[event_level][:, :2]
         if self.selMod == "semittE":
             pruned_ev["SelElectron"] = event_iso_lep[event_level][:, 0]
         elif self.selMod == "semittM":
@@ -241,6 +263,7 @@ class NanoProcessor(processor.ProcessorABC):
         pruned_ev["ncjet"] = ak.count(event_jet[event_level].pt[c_jet_mask], axis=1)
         pruned_ev["MET"] = event_MET[event_level]
         pruned_ev["w_mt"] = event_Wmt[event_level]
+        pruned_ev["w_hadmass"] = event_Whad[event_level]
 
         ####################
         #     Output       #

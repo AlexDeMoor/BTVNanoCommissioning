@@ -1,0 +1,6 @@
+[submodule "docs/SFbc-2D"]
+	path = docs/SFbc-2D
+	url = https://gitlab.cern.ch/cms-btv/btv-sf-code/sfbc-2d.git
+[submodule "SFbc-2D"]
+	path = SFbc-2D
+	url = https://gitlab.cern.ch/cms-btv/btv-sf-code/sfbc-2d.git

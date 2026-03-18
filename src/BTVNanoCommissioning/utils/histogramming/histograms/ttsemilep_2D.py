@@ -7,6 +7,7 @@ def get_histograms(axes, **kwargs):
     hists[f"nbjet"] = Hist.Hist(axes["syst"], axes["n"], Hist.storage.Weight())
     hists[f"ncjet"] = Hist.Hist(axes["syst"], axes["n"], Hist.storage.Weight())
     hists[f"w_mt"] = Hist.Hist(axes["syst"], axes["mt"], Hist.storage.Weight())
+    hists[f"w_hadmass"] = Hist.Hist(axes["syst"], axes["hadmass"], Hist.storage.Weight())
 
     channel = kwargs.get("channel", "mu")
     hists[f"{channel}_pfRelIso04_all"] = Hist.Hist(
